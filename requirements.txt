@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+websockets>=12.0
+torch>=2.2
+numpy>=1.26
+pydantic>=2.5

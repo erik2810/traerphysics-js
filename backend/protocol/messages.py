@@ -1,0 +1,2 @@
+MSG_STATE: int = 0x01
+MSG_TOPOLOGY: int = 0x02
