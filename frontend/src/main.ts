@@ -2,6 +2,7 @@ import { createScene } from "./scene";
 import { setupCameraForDim } from "./controls";
 import { ParticleRenderer } from "./renderer/ParticleRenderer";
 import { SpringRenderer } from "./renderer/SpringRenderer";
+import { ForceVectorRenderer } from "./renderer/ForceVectorRenderer";
 import { WebSocketClient } from "./network/WebSocketClient";
 import { ApiClient } from "./network/ApiClient";
 import { LocalSimulation } from "./physics/LocalSimulation";
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
 
   const particleRenderer = new ParticleRenderer(ctx.scene);
   const springRenderer = new SpringRenderer(ctx.scene);
+  const forceRenderer = new ForceVectorRenderer(ctx.scene);
 
   const useLocal = shouldUseLocal();
   let ds: DataSource;
@@ -64,6 +66,7 @@ async function main(): Promise<void> {
     currentTopology = topology;
     particleRenderer.updateTopology(topology);
     springRenderer.updateTopology(topology);
+    forceRenderer.updateTopology(topology.numParticles);
     picker.setDim(topology.dim);
     setupCameraForDim(ctx, topology.dim);
     stats.setCounts(topology.numParticles, topology.numSprings);
@@ -74,6 +77,7 @@ async function main(): Promise<void> {
     if (currentTopology) {
       springRenderer.updatePositions(state.positions, state.dim);
     }
+    forceRenderer.updateForces(state.positions, state.forces, state.dim);
   });
 
   ds.onConnect(() => stats.setConnected(true));
@@ -81,6 +85,8 @@ async function main(): Promise<void> {
 
   const gui = new GuiPanel(ds.api);
   gui.onShowSpringsChange = (v) => springRenderer.setVisible(v);
+  gui.onShowForcesChange = (v) => forceRenderer.setVisible(v);
+  gui.onForceScaleChange = (v) => { forceRenderer.scale = v; };
   gui.onModeChanged = () => {};
 
   ds.start();

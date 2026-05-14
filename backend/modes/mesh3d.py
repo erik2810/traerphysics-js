@@ -34,6 +34,7 @@ class Mesh3DMode(SimulationMode):
     def setup(self, engine: PhysicsEngine, params: dict) -> None:
         p = {**self.default_params(), **params}
         engine.reset()
+        engine.integration_mode = "euler"
         engine.dim = self.dim
         engine.gravity = torch.tensor([p["gravity_x"], p["gravity_y"], p["gravity_z"]])
         engine.drag_coefficient = p["drag"]

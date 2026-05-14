@@ -7,6 +7,7 @@ export const COLORS = {
   particlePinned: 0xffa040,
   particleGrabbed: 0xff6464,
   spring: 0x507090,
+  forceVector: 0x00ffcc,
   ambient: 0x404060,
   directional: 0xffffff,
 } as const;

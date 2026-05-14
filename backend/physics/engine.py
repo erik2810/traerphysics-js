@@ -5,7 +5,8 @@ import torch
 from .particle import ParticleSystem
 from .forces import (
     SpringSystem, AttractionSystem,
-    apply_spring_forces, apply_attractions, apply_viscous_drag,
+    apply_spring_forces, apply_springs_position_based,
+    apply_attractions, apply_viscous_drag, apply_verlet_drag,
     apply_gravity, apply_wind,
 )
 from .constraints import (
@@ -16,21 +17,11 @@ from .collisions import (
     Bounds, enforce_bounds_clamp, enforce_bounds_elastic,
     floor_collision, resolve_elastic_collisions,
 )
-from .integrators import euler_integrate, clamp_velocities
+from .integrators import verlet_integrate, euler_integrate, clamp_velocities
 
 
 class PhysicsEngine:
-    """Central physics simulation engine.
-
-    Step order (force-based Euler, per gorillasun / Paul Bourke):
-      1. Zero acceleration accumulator (done by integrator at end of prev step)
-      2. Accumulate forces: gravity, wind, drag, springs, attractions
-      3. Integrate: v += a*dt, x += v*dt (Euler)
-      4. Clamp velocities
-      5. Solve position-based constraints (iterated)
-      6. Resolve elastic collisions
-      7. Enforce bounds / floor collision
-    """
+    """Central physics simulation engine supporting Verlet and Euler integration."""
 
     def __init__(self, dim: int = 2):
         self.dim = dim
@@ -53,6 +44,9 @@ class PhysicsEngine:
         self.constraint_iterations: int = 1
         self.enable_collisions: bool = False
         self.collision_radii: Optional[torch.Tensor] = None
+
+        # "verlet" matches original traerphysics.js; "euler" for mesh3d collisions
+        self.integration_mode: str = "verlet"
 
         self.sim_time: float = 0.0
         self.dt: float = 1.0 / 60.0
@@ -79,57 +73,99 @@ class PhysicsEngine:
         self.enable_collisions = False
         self.collision_radii = None
 
+        self.integration_mode = "verlet"
         self.sim_time = 0.0
 
     def step(self) -> None:
         if self.particles is None or self.particles.count == 0:
             return
 
+        if self.integration_mode == "verlet":
+            self._step_verlet()
+        else:
+            self._step_euler()
+
+        self.sim_time += self.dt
+
+    def _step_verlet(self) -> None:
+        """Verlet step matching traerphysics.js Physics.step()."""
         ps = self.particles
+        assert ps is not None
         dt = self.dt
 
-        # 1. Accumulate forces into acceleration buffer
+        # 1. Accumulate acceleration-based forces
         if self.gravity.any():
             apply_gravity(ps, self.gravity)
-
         if self.wind_strength > 0:
             apply_wind(ps, self.wind_strength)
-
         if self.drag_coefficient > 0:
-            apply_viscous_drag(ps, self.drag_coefficient)
-
-        apply_spring_forces(ps, self.springs)
-
+            apply_verlet_drag(ps, self.drag_coefficient)
         apply_attractions(ps, self.attractions)
 
-        # 2. Integrate: v += a*dt, x += v*dt (clears accelerations)
-        euler_integrate(ps, dt)
+        # 2. Position-based springs
+        apply_springs_position_based(ps, self.springs)
 
-        # 3. Clamp velocities
-        if self.max_speed > 0:
-            clamp_velocities(ps, self.max_speed)
-
-        # 4. Solve position-based constraints (iterated)
+        # 3. Constraints
         for _ in range(self.constraint_iterations):
             solve_distance_constraints(ps, self.distance_constraints)
             solve_angle_constraints(ps, self.angle_constraints)
 
-        # 5. Resolve elastic collisions
-        if self.enable_collisions and self.collision_radii is not None:
-            resolve_elastic_collisions(ps, self.collision_radii)
+        # 4. Verlet integrate
+        verlet_integrate(ps, dt)
 
-        # 6. Enforce bounds
+        # 5. Bounds
         if self.bounds is not None:
             if self.bounds_mode == "elastic":
                 enforce_bounds_elastic(ps, self.bounds, self.collision_radii)
             else:
                 enforce_bounds_clamp(ps, self.bounds)
 
-        # 7. Floor collision
+        # 6. Floor
         if self.floor_y is not None:
             floor_collision(ps, self.floor_y, self.floor_restitution)
 
-        self.sim_time += dt
+    def _step_euler(self) -> None:
+        """Euler step for modes needing explicit velocity (mesh3d collisions)."""
+        ps = self.particles
+        assert ps is not None
+        dt = self.dt
+
+        # 1. Accumulate forces
+        if self.gravity.any():
+            apply_gravity(ps, self.gravity)
+        if self.wind_strength > 0:
+            apply_wind(ps, self.wind_strength)
+        if self.drag_coefficient > 0:
+            apply_viscous_drag(ps, self.drag_coefficient, dt)
+        apply_spring_forces(ps, self.springs)
+        apply_attractions(ps, self.attractions)
+
+        # 2. Integrate
+        euler_integrate(ps, dt)
+
+        # 3. Clamp velocities
+        if self.max_speed > 0:
+            clamp_velocities(ps, self.max_speed)
+
+        # 4. Solve constraints
+        for _ in range(self.constraint_iterations):
+            solve_distance_constraints(ps, self.distance_constraints)
+            solve_angle_constraints(ps, self.angle_constraints)
+
+        # 5. Elastic collisions
+        if self.enable_collisions and self.collision_radii is not None:
+            resolve_elastic_collisions(ps, self.collision_radii)
+
+        # 6. Bounds
+        if self.bounds is not None:
+            if self.bounds_mode == "elastic":
+                enforce_bounds_elastic(ps, self.bounds, self.collision_radii)
+            else:
+                enforce_bounds_clamp(ps, self.bounds)
+
+        # 7. Floor
+        if self.floor_y is not None:
+            floor_collision(ps, self.floor_y, self.floor_restitution)
 
     def get_spring_pairs(self) -> torch.Tensor:
         """Return all spring/constraint connectivity as (S, 2) int tensor for rendering."""

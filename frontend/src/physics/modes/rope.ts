@@ -11,13 +11,11 @@ export const ropeMode = {
       segment_length: 25,
       start_x: 400,
       start_y: 50,
-      spring_k: 120,
-      spring_damping: 4,
+      spring_k: 0.5,
       mass: 1,
-      drag: 2,
+      drag: 0.5,
       gravity_x: 0,
-      gravity_y: 80,
-      max_speed: 400,
+      gravity_y: 0,
       canvas_width: 800,
       canvas_height: 600,
     };
@@ -29,7 +27,6 @@ export const ropeMode = {
     engine.dim = 2;
     engine.gravity = new Float32Array([p.gravity_x, p.gravity_y]);
     engine.dragCoefficient = p.drag;
-    engine.maxSpeed = p.max_speed;
 
     const n = Math.floor(p.num_segments);
     const segLen = p.segment_length;
@@ -49,9 +46,8 @@ export const ropeMode = {
     engine.particles = ParticleSystem.create(positions, masses, pinned);
 
     const k = p.spring_k;
-    const kd = p.spring_damping;
     for (let i = 0; i < n - 1; i++) {
-      engine.springs.add(i, i + 1, segLen, k, kd);
+      engine.springs.add(i, i + 1, segLen, k);
     }
 
     engine.bounds = {
@@ -59,5 +55,16 @@ export const ropeMode = {
       maxPos: new Float32Array([p.canvas_width, p.canvas_height]),
     };
     engine.boundsMode = "clamp";
+
+    // Initial whip velocity: increasing horizontal push down the chain
+    const dt = engine.dt;
+    const ps = engine.particles;
+    for (let i = 1; i < n; i++) {
+      const t = i / (n - 1); // 0 at top, 1 at bottom
+      const vx = 120 * t;
+      const vy = -30 * t;
+      ps.prevPositions[i * 2] = ps.positions[i * 2] - vx * dt;
+      ps.prevPositions[i * 2 + 1] = ps.positions[i * 2 + 1] - vy * dt;
+    }
   },
 };

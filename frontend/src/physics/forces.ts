@@ -17,7 +17,7 @@ export class SpringSystem {
     this.count = 0;
   }
 
-  add(a: number, b: number, restLength: number, stiffness: number, damping: number): void {
+  add(a: number, b: number, restLength: number, stiffness: number, damping: number = 0): void {
     const i = this.count;
     this.count++;
 
@@ -40,6 +40,50 @@ export class SpringSystem {
   }
 }
 
+/**
+ * Position-based spring correction (Verlet mode).
+ * Directly moves particles toward rest length — no force accumulation.
+ * Matches traerphysics.js Spring.apply():
+ *   diff = (dist - rest) / dist
+ *   correction = k * diff * 0.5 * delta
+ *   a.position += correction; b.position -= correction
+ */
+export function applySpringsPositionBased(ps: ParticleSystem, springs: SpringSystem): void {
+  if (springs.count === 0) return;
+  const dim = ps.dim;
+  const pos = ps.positions;
+
+  for (let s = 0; s < springs.count; s++) {
+    const a = springs.indicesA[s];
+    const b = springs.indicesB[s];
+    const k = springs.stiffnesses[s];
+    const rest = springs.restLengths[s];
+
+    let distSq = 0;
+    for (let d = 0; d < dim; d++) {
+      const dd = pos[b * dim + d] - pos[a * dim + d];
+      distSq += dd * dd;
+    }
+    const dist = Math.sqrt(distSq) || 1;
+    const diff = (dist - rest) / dist;
+
+    const pinnedA = ps.pinned[a];
+    const pinnedB = ps.pinned[b];
+
+    for (let d = 0; d < dim; d++) {
+      const delta = pos[b * dim + d] - pos[a * dim + d];
+      const correction = k * diff * 0.5 * delta;
+      if (!pinnedA) pos[a * dim + d] += correction;
+      if (!pinnedB) pos[b * dim + d] -= correction;
+    }
+  }
+}
+
+/**
+ * Force-based Hooke's law springs with velocity damping (Euler mode).
+ * Used by mesh3d where explicit velocity is needed for collisions.
+ * F = [ks * (dist - rest) + kd * dot(vrel, n)] * n
+ */
 export function applySpringForces(ps: ParticleSystem, springs: SpringSystem): void {
   if (springs.count === 0) return;
   const dim = ps.dim;
@@ -55,7 +99,6 @@ export function applySpringForces(ps: ParticleSystem, springs: SpringSystem): vo
     const kd = springs.dampings[s];
     const rest = springs.restLengths[s];
 
-    // Displacement and distance
     let distSq = 0;
     for (let d = 0; d < dim; d++) {
       const dd = pos[b * dim + d] - pos[a * dim + d];
@@ -65,20 +108,16 @@ export function applySpringForces(ps: ParticleSystem, springs: SpringSystem): vo
     if (dist < 1e-6) continue;
     const invDist = 1.0 / dist;
 
-    // Unit normal
     const deform = dist - rest;
     const fSpring = ks * deform;
 
-    // Velocity-based damping along spring axis
     let vAlong = 0;
     for (let d = 0; d < dim; d++) {
       const n = (pos[b * dim + d] - pos[a * dim + d]) * invDist;
       vAlong += (vel[b * dim + d] - vel[a * dim + d]) * n;
     }
-    const fDamp = kd * vAlong;
-    const fTotal = fSpring + fDamp;
+    const fTotal = fSpring + kd * vAlong;
 
-    // Apply forces: a gets +F, b gets -F
     for (let d = 0; d < dim; d++) {
       const n = (pos[b * dim + d] - pos[a * dim + d]) * invDist;
       const f = fTotal * n;
@@ -159,13 +198,42 @@ export function applyAttractions(ps: ParticleSystem, attractions: AttractionSyst
   }
 }
 
-export function applyViscousDrag(ps: ParticleSystem, coefficient: number): void {
+/**
+ * Viscous drag for Euler mode. Uses explicit velocity.
+ * F = -c * v, with clamping to prevent overdamping instability.
+ * The effective coefficient is limited so drag removes at most 90% of velocity per frame.
+ */
+export function applyViscousDrag(ps: ParticleSystem, coefficient: number, dt: number): void {
   if (coefficient <= 0) return;
   const dim = ps.dim;
   for (let i = 0; i < ps.count; i++) {
     const im = ps.invMasses[i];
+    if (im <= 0) continue;
+    // Clamp: c * im * dt < 0.9 → c < 0.9 / (im * dt)
+    const effectiveC = Math.min(coefficient, 0.9 / (im * dt));
     for (let d = 0; d < dim; d++) {
-      ps.accelerations[i * dim + d] += -coefficient * ps.velocities[i * dim + d] * im;
+      ps.accelerations[i * dim + d] += -effectiveC * ps.velocities[i * dim + d] * im;
+    }
+  }
+}
+
+/**
+ * Viscous drag for Verlet mode. Derives velocity from pos - prev.
+ * Matches traerphysics.js Drag.apply():
+ *   vel = pos - prev; F = -c * vel; applyForce(F)
+ */
+export function applyVerletDrag(ps: ParticleSystem, coefficient: number): void {
+  if (coefficient <= 0) return;
+  const dim = ps.dim;
+  const pos = ps.positions;
+  const prev = ps.prevPositions;
+  const acc = ps.accelerations;
+  for (let i = 0; i < ps.count; i++) {
+    const im = ps.invMasses[i];
+    if (im <= 0) continue;
+    for (let d = 0; d < dim; d++) {
+      const vel = pos[i * dim + d] - prev[i * dim + d];
+      acc[i * dim + d] += -coefficient * vel * im;
     }
   }
 }

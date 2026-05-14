@@ -191,6 +191,7 @@ export class LocalSimulation implements SimulationAPI {
           numParticles: this.engine.particles.count,
           positions: this.engine.particles.positions,
           simTime: this.engine.simTime,
+          forces: this.engine.lastAccelerations ?? undefined,
         });
       }
       this.animFrameId = requestAnimationFrame(loop);

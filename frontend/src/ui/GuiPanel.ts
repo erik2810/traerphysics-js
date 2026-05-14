@@ -14,15 +14,15 @@ interface SliderConfig {
 const SLIDER_CONFIGS: SliderConfig[] = [
   { key: "gravity_y", label: "Gravity Y", min: -500, max: 500, step: 5, apiField: "gravity" },
   { key: "drag", label: "Drag", min: 0, max: 20, step: 0.5, apiField: "drag" },
-  { key: "spring_k", label: "Spring Stiffness", min: 1, max: 500, step: 1, apiField: "spring_k" },
-  { key: "spring_damping", label: "Spring Damping", min: 0, max: 50, step: 0.5, apiField: "spring_damping" },
-  { key: "structural_stiffness", label: "Structural K", min: 1, max: 600, step: 5, apiField: "spring_k" },
+  { key: "spring_k", label: "Spring Stiffness", min: 0.01, max: 1.0, step: 0.01, apiField: "spring_k" },
+  { key: "structural_stiffness", label: "Structural K", min: 0.01, max: 1.0, step: 0.01, apiField: "spring_k" },
   { key: "mass", label: "Mass", min: 0.01, max: 20, step: 0.1, apiField: "mass" },
   { key: "max_speed", label: "Max Speed", min: 10, max: 1000, step: 10, apiField: "max_speed" },
   { key: "wind_strength", label: "Wind", min: 0, max: 50, step: 0.5, apiField: "wind_strength" },
   { key: "attraction_strength", label: "Attraction", min: 0, max: 20000, step: 100, apiField: "attraction_strength" },
   { key: "constraint_iterations", label: "Constraint Iters", min: 1, max: 20, step: 1, apiField: "constraint_iterations" },
   { key: "stiffness", label: "Stiffness", min: 1, max: 200, step: 1, apiField: "spring_k" },
+  { key: "spring_damping", label: "Spring Damping", min: 0, max: 50, step: 0.5, apiField: "spring_damping" },
 ];
 
 export class GuiPanel {
@@ -34,9 +34,13 @@ export class GuiPanel {
     mode: "triangle",
     paused: false,
     showSprings: true,
+    showForces: true,
+    forceScale: 30,
   };
 
   onShowSpringsChange: ((visible: boolean) => void) | null = null;
+  onShowForcesChange: ((visible: boolean) => void) | null = null;
+  onForceScaleChange: ((scale: number) => void) | null = null;
   onModeChanged: (() => void) | null = null;
 
   constructor(api: SimulationAPI) {
@@ -88,6 +92,14 @@ export class GuiPanel {
       .add(this.state, "showSprings")
       .name("Show Springs")
       .onChange((v: boolean) => this.onShowSpringsChange?.(v));
+    folder
+      .add(this.state, "showForces")
+      .name("Show Forces")
+      .onChange((v: boolean) => this.onShowForcesChange?.(v));
+    folder
+      .add(this.state, "forceScale", 1, 200, 1)
+      .name("Force Scale")
+      .onChange((v: number) => this.onForceScaleChange?.(v));
     folder.close();
   }
 
