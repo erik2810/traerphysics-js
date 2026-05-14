@@ -26,6 +26,7 @@ export const mesh3dMode = {
   setup(engine: PhysicsEngine, params: Record<string, number>): void {
     const p = { ...this.defaultParams(), ...params };
     engine.reset();
+    engine.integrationMode = "euler";
     engine.dim = 3;
     engine.gravity = new Float32Array([p.gravity_x, p.gravity_y, p.gravity_z]);
     engine.dragCoefficient = p.drag;

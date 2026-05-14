@@ -3,8 +3,10 @@ import {
   SpringSystem,
   AttractionSystem,
   applySpringForces,
+  applySpringsPositionBased,
   applyAttractions,
   applyViscousDrag,
+  applyVerletDrag,
   applyGravity,
   applyWind,
 } from "./forces";
@@ -21,7 +23,7 @@ import {
   floorCollision,
   resolveElasticCollisions,
 } from "./collisions";
-import { eulerIntegrate, clampVelocities } from "./integrators";
+import { verletIntegrate, eulerIntegrate, clampVelocities } from "./integrators";
 
 export class PhysicsEngine {
   dim: number;
@@ -45,6 +47,12 @@ export class PhysicsEngine {
   constraintIterations = 1;
   enableCollisions = false;
   collisionRadii: Float32Array | null = null;
+
+  /** "verlet" matches original traerphysics.js; "euler" for mesh3d collisions */
+  integrationMode: "verlet" | "euler" = "verlet";
+
+  /** Snapshot of net accelerations captured right before integration clears them. */
+  lastAccelerations: Float32Array | null = null;
 
   simTime = 0;
   dt = 1 / 60;
@@ -75,6 +83,8 @@ export class PhysicsEngine {
     this.enableCollisions = false;
     this.collisionRadii = null;
 
+    this.integrationMode = "verlet";
+    this.lastAccelerations = null;
     this.simTime = 0;
   }
 
@@ -82,35 +92,51 @@ export class PhysicsEngine {
     const ps = this.particles;
     if (!ps || ps.count === 0) return;
 
+    if (this.integrationMode === "verlet") {
+      this.stepVerlet(ps);
+    } else {
+      this.stepEuler(ps);
+    }
+
+    this.simTime += this.dt;
+  }
+
+  /**
+   * Verlet step matching traerphysics.js Physics.step():
+   *   1. Gravity, drag, wind, attractions → accumulate in accelerations
+   *   2. Position-based springs (direct position correction)
+   *   3. Constraints (distance, angle — position correction)
+   *   4. Snapshot accelerations (for force vector visualization)
+   *   5. Verlet integrate: next = pos + (pos - prev) + acc * dt²
+   *   6. Bounds / floor
+   */
+  private stepVerlet(ps: ParticleSystem): void {
     const dt = this.dt;
 
-    // 1. Accumulate forces
+    // 1. Accumulate acceleration-based forces
     let hasGravity = false;
     for (let d = 0; d < this.dim; d++) {
       if (this.gravity[d] !== 0) { hasGravity = true; break; }
     }
     if (hasGravity) applyGravity(ps, this.gravity);
     if (this.windStrength > 0) applyWind(ps, this.windStrength);
-    if (this.dragCoefficient > 0) applyViscousDrag(ps, this.dragCoefficient);
-    applySpringForces(ps, this.springs);
+    if (this.dragCoefficient > 0) applyVerletDrag(ps, this.dragCoefficient);
     applyAttractions(ps, this.attractions);
 
-    // 2. Integrate
-    eulerIntegrate(ps, dt);
+    // 2. Position-based springs
+    applySpringsPositionBased(ps, this.springs);
 
-    // 3. Clamp velocities
-    if (this.maxSpeed > 0) clampVelocities(ps, this.maxSpeed);
-
-    // 4. Solve constraints
+    // 3. Constraints
     for (let i = 0; i < this.constraintIterations; i++) {
       solveDistanceConstraints(ps, this.distanceConstraints);
       solveAngleConstraints(ps, this.angleConstraints);
     }
 
-    // 5. Elastic collisions
-    if (this.enableCollisions && this.collisionRadii) {
-      resolveElasticCollisions(ps, this.collisionRadii);
-    }
+    // 4. Snapshot accelerations before integration clears them
+    this.snapshotAccelerations(ps);
+
+    // 5. Verlet integrate
+    verletIntegrate(ps, dt);
 
     // 6. Bounds
     if (this.bounds) {
@@ -125,8 +151,66 @@ export class PhysicsEngine {
     if (this.floorY !== null) {
       floorCollision(ps, this.floorY, this.floorRestitution);
     }
+  }
 
-    this.simTime += dt;
+  /**
+   * Euler step for modes needing explicit velocity (mesh3d collisions).
+   */
+  private stepEuler(ps: ParticleSystem): void {
+    const dt = this.dt;
+
+    // 1. Accumulate forces
+    let hasGravity = false;
+    for (let d = 0; d < this.dim; d++) {
+      if (this.gravity[d] !== 0) { hasGravity = true; break; }
+    }
+    if (hasGravity) applyGravity(ps, this.gravity);
+    if (this.windStrength > 0) applyWind(ps, this.windStrength);
+    if (this.dragCoefficient > 0) applyViscousDrag(ps, this.dragCoefficient, dt);
+    applySpringForces(ps, this.springs);
+    applyAttractions(ps, this.attractions);
+
+    // 2. Snapshot accelerations before integration clears them
+    this.snapshotAccelerations(ps);
+
+    // 3. Integrate
+    eulerIntegrate(ps, dt);
+
+    // 4. Clamp velocities
+    if (this.maxSpeed > 0) clampVelocities(ps, this.maxSpeed);
+
+    // 5. Solve constraints
+    for (let i = 0; i < this.constraintIterations; i++) {
+      solveDistanceConstraints(ps, this.distanceConstraints);
+      solveAngleConstraints(ps, this.angleConstraints);
+    }
+
+    // 6. Elastic collisions
+    if (this.enableCollisions && this.collisionRadii) {
+      resolveElasticCollisions(ps, this.collisionRadii);
+    }
+
+    // 7. Bounds
+    if (this.bounds) {
+      if (this.boundsMode === "elastic") {
+        enforceBoundsElastic(ps, this.bounds, this.collisionRadii);
+      } else {
+        enforceBoundsClamp(ps, this.bounds);
+      }
+    }
+
+    // 8. Floor
+    if (this.floorY !== null) {
+      floorCollision(ps, this.floorY, this.floorRestitution);
+    }
+  }
+
+  private snapshotAccelerations(ps: ParticleSystem): void {
+    const len = ps.count * ps.dim;
+    if (!this.lastAccelerations || this.lastAccelerations.length !== len) {
+      this.lastAccelerations = new Float32Array(len);
+    }
+    this.lastAccelerations.set(ps.accelerations);
   }
 
   getSpringPairs(): Uint16Array {

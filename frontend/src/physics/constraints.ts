@@ -140,11 +140,9 @@ export function solveAngleConstraints(
     const angleCB = Math.atan2(cby, cbx);
     const currentAngle = angleCB - angleAB;
 
-    // Wrap diff to [-pi, pi]
     let diff = currentAngle - target;
-    diff = ((diff + Math.PI) % (2 * Math.PI)) - Math.PI;
-    // Handle negative modulo
-    if (diff < -Math.PI) diff += 2 * Math.PI;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
 
     const correction = diff * stiffness;
 

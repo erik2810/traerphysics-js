@@ -3,6 +3,8 @@ export interface SimulationState {
   numParticles: number;
   positions: Float32Array;
   simTime: number;
+  /** Net acceleration snapshot (before integration zeros it). Local mode only. */
+  forces?: Float32Array;
 }
 
 export interface Topology {

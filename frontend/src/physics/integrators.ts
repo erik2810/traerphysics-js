@@ -1,5 +1,41 @@
 import type { ParticleSystem } from "./ParticleSystem";
 
+/**
+ * Verlet integration matching traerphysics.js Particle.integrate():
+ *   vel = pos - prev
+ *   next = pos + vel + acc * dt²
+ *   prev = pos
+ */
+export function verletIntegrate(ps: ParticleSystem, dt: number): void {
+  const dim = ps.dim;
+  const pos = ps.positions;
+  const prev = ps.prevPositions;
+  const acc = ps.accelerations;
+  const dtSq = dt * dt;
+
+  for (let i = 0; i < ps.count; i++) {
+    if (ps.pinned[i]) {
+      for (let d = 0; d < dim; d++) {
+        acc[i * dim + d] = 0;
+      }
+      continue;
+    }
+    for (let d = 0; d < dim; d++) {
+      const idx = i * dim + d;
+      const current = pos[idx];
+      const velocity = current - prev[idx];
+      pos[idx] = current + velocity + acc[idx] * dtSq;
+      prev[idx] = current;
+      acc[idx] = 0;
+    }
+  }
+}
+
+/**
+ * Explicit Euler integration (for mesh3d where explicit velocity is needed for collisions).
+ *   v += a * dt
+ *   x += v * dt
+ */
 export function eulerIntegrate(ps: ParticleSystem, dt: number): void {
   const dim = ps.dim;
   const pos = ps.positions;
@@ -8,7 +44,6 @@ export function eulerIntegrate(ps: ParticleSystem, dt: number): void {
 
   for (let i = 0; i < ps.count; i++) {
     if (ps.pinned[i]) {
-      // Clear accelerations for pinned particles
       for (let d = 0; d < dim; d++) {
         acc[i * dim + d] = 0;
         vel[i * dim + d] = 0;

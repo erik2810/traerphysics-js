@@ -7,9 +7,8 @@ from backend.physics.collisions import Bounds
 
 
 class RopeMode(SimulationMode):
-    """Chain of particles connected by springs between neighbors only.
-    Uses force-based springs for dynamics — no distance constraints,
-    so the rope can oscillate around its rest lengths."""
+    """Chain of particles connected by position-based springs.
+    First particle pinned, Verlet integration."""
 
     name = "rope"
     dim = 2
@@ -20,13 +19,11 @@ class RopeMode(SimulationMode):
             "segment_length": 25.0,
             "start_x": 400.0,
             "start_y": 50.0,
-            "spring_k": 120.0,
-            "spring_damping": 4.0,
+            "spring_k": 0.5,
             "mass": 1.0,
-            "drag": 2.0,
+            "drag": 0.5,
             "gravity_x": 0.0,
-            "gravity_y": 80.0,
-            "max_speed": 400.0,
+            "gravity_y": 0.0,
             "canvas_width": 800.0,
             "canvas_height": 600.0,
         }
@@ -37,7 +34,6 @@ class RopeMode(SimulationMode):
         engine.dim = self.dim
         engine.gravity = torch.tensor([p["gravity_x"], p["gravity_y"]])
         engine.drag_coefficient = p["drag"]
-        engine.max_speed = p["max_speed"]
 
         n = int(p["num_segments"])
         seg_len = p["segment_length"]
@@ -54,15 +50,22 @@ class RopeMode(SimulationMode):
 
         engine.particles = ParticleSystem.create(positions, masses=masses, pinned=pinned)
 
-        # Only springs between direct neighbors — no distance constraints
         k = p["spring_k"]
-        kd = p["spring_damping"]
         for i in range(n - 1):
-            engine.springs.add(i, i + 1, seg_len, k, kd)
+            engine.springs.add(i, i + 1, seg_len, k)
 
-        # Bounds to keep rope on-screen
         engine.bounds = Bounds(
             min_pos=torch.tensor([0.0, 0.0]),
             max_pos=torch.tensor([p["canvas_width"], p["canvas_height"]]),
         )
         engine.bounds_mode = "clamp"
+
+        # Initial whip velocity: increasing horizontal push down the chain
+        dt = engine.dt
+        ps = engine.particles
+        for i in range(1, n):
+            t = i / (n - 1)
+            vx = 120.0 * t
+            vy = -30.0 * t
+            ps.prev_positions[i, 0] = ps.positions[i, 0] - vx * dt
+            ps.prev_positions[i, 1] = ps.positions[i, 1] - vy * dt

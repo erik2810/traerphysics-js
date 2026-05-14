@@ -45,6 +45,34 @@ class SpringSystem:
         self.dampings = torch.cat([self.dampings, torch.tensor([damping])])
 
 
+def apply_springs_position_based(ps: ParticleSystem, springs: SpringSystem) -> None:
+    """Position-based spring correction (Verlet mode).
+    Directly moves particles toward rest length — no force accumulation.
+    Matches traerphysics.js Spring.apply().
+    """
+    if springs.count == 0:
+        return
+
+    pos_a = ps.positions[springs.indices_a]  # (S, dim)
+    pos_b = ps.positions[springs.indices_b]  # (S, dim)
+
+    delta = pos_b - pos_a
+    dist = delta.norm(dim=-1, keepdim=True).clamp(min=1e-6)  # (S, 1)
+    diff = (dist - springs.rest_lengths.unsqueeze(-1)) / dist  # (S, 1)
+
+    correction = springs.stiffnesses.unsqueeze(-1) * diff * 0.5 * delta  # (S, dim)
+
+    pinned_a = ps.pinned[springs.indices_a].unsqueeze(-1)  # (S, 1)
+    pinned_b = ps.pinned[springs.indices_b].unsqueeze(-1)
+
+    # Scatter corrections back to particles
+    corr_a = torch.where(pinned_a, torch.zeros_like(correction), correction)
+    corr_b = torch.where(pinned_b, torch.zeros_like(correction), correction)
+
+    ps.positions.index_add_(0, springs.indices_a, corr_a)
+    ps.positions.index_add_(0, springs.indices_b, -corr_b)
+
+
 def apply_spring_forces(ps: ParticleSystem, springs: SpringSystem) -> None:
     """Apply Hooke's law spring forces with velocity-based damping along the spring axis.
 
@@ -163,12 +191,25 @@ def apply_attractions(ps: ParticleSystem, attractions: AttractionSystem) -> None
     ps.accelerations.index_add_(0, attractions.indices_b, -force * inv_mass_b)
 
 
-def apply_viscous_drag(ps: ParticleSystem, coefficient: float) -> None:
-    """Viscous drag: F = -kd * v. Applied as acceleration = -kd * v * inv_mass.
-    Reference: https://paulbourke.net/miscellaneous/particle/"""
+def apply_viscous_drag(ps: ParticleSystem, coefficient: float, dt: float = 1.0 / 60.0) -> None:
+    """Viscous drag for Euler mode: F = -kd * v, with clamping for stability."""
     if coefficient <= 0:
         return
-    drag_force = -coefficient * ps.velocities  # (N, dim)
+    # Clamp so drag removes at most 90% of velocity per frame
+    max_c = 0.9 / (ps.inv_masses.clamp(min=1e-6) * dt)  # (N,)
+    effective_c = torch.clamp(torch.tensor(coefficient), max=max_c)  # (N,)
+    drag_force = -effective_c.unsqueeze(-1) * ps.velocities  # (N, dim)
+    ps.accelerations += drag_force * ps.inv_masses.unsqueeze(-1)
+
+
+def apply_verlet_drag(ps: ParticleSystem, coefficient: float) -> None:
+    """Viscous drag for Verlet mode. Derives velocity from pos - prev.
+    Matches traerphysics.js Drag.apply().
+    """
+    if coefficient <= 0:
+        return
+    vel = ps.positions - ps.prev_positions  # (N, dim)
+    drag_force = -coefficient * vel
     ps.accelerations += drag_force * ps.inv_masses.unsqueeze(-1)
 
 

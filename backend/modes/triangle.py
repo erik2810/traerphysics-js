@@ -8,9 +8,8 @@ from backend.physics.collisions import Bounds
 
 
 class TriangleMode(SimulationMode):
-    """Three particles forming an equilateral triangle with springs and an angle constraint.
-    Force-based springs with damping (Bourke/gorillasun model).
-    Bounded to a canvas region so the triangle doesn't drift off-screen."""
+    """Three particles forming an equilateral triangle with position-based springs
+    and an angle constraint. Verlet integration."""
 
     name = "triangle"
     dim = 2
@@ -18,15 +17,13 @@ class TriangleMode(SimulationMode):
     def default_params(self) -> dict:
         return {
             "side_length": 100.0,
-            "spring_k": 150.0,
-            "spring_damping": 12.0,
+            "spring_k": 0.3,
             "angle_stiffness": 0.3,
             "target_angle": math.pi / 3,
             "mass": 1.0,
-            "drag": 4.0,
+            "drag": 0.5,
             "gravity_x": 0.0,
-            "gravity_y": 10.0,
-            "max_speed": 200.0,
+            "gravity_y": 0.0,
             "canvas_width": 800.0,
             "canvas_height": 600.0,
         }
@@ -37,30 +34,42 @@ class TriangleMode(SimulationMode):
         engine.dim = self.dim
         engine.gravity = torch.tensor([p["gravity_x"], p["gravity_y"]])
         engine.drag_coefficient = p["drag"]
-        engine.max_speed = p["max_speed"]
 
         cx = p["canvas_width"] / 2
         cy = p["canvas_height"] / 2
         side = p["side_length"]
 
-        # Equilateral triangle centered at (cx, cy) with correct pi/3 angles
         h = side * math.sqrt(3) / 2
-        p0 = [cx, cy - h * 2 / 3]          # top vertex (angle constraint pivot)
-        p1 = [cx + side / 2, cy + h / 3]   # bottom-right
-        p2 = [cx - side / 2, cy + h / 3]   # bottom-left
+        p0 = [cx, cy - h * 2 / 3]
+        p1 = [cx + side / 2, cy + h / 3]
+        p2 = [cx - side / 2, cy + h / 3]
 
         engine.particles = ParticleSystem.create(positions=[p0, p1, p2])
 
         k = p["spring_k"]
-        kd = p["spring_damping"]
         for a, b in [(0, 1), (0, 2), (1, 2)]:
-            engine.springs.add(a, b, side, k, kd)
+            engine.springs.add(a, b, side, k)
 
         engine.angle_constraints.add(1, 0, 2, p["target_angle"], p["angle_stiffness"])
 
-        # Bounds to keep triangle on-screen
         engine.bounds = Bounds(
             min_pos=torch.tensor([0.0, 0.0]),
             max_pos=torch.tensor([p["canvas_width"], p["canvas_height"]]),
         )
         engine.bounds_mode = "elastic"
+
+        # Initial rotational velocity (counter-clockwise spin + drift)
+        dt = engine.dt
+        ps = engine.particles
+        centx = (p0[0] + p1[0] + p2[0]) / 3
+        centy = (p0[1] + p1[1] + p2[1]) / 3
+        spin = 80.0
+        drift = 40.0
+        verts = [p0, p1, p2]
+        for i in range(3):
+            dx = verts[i][0] - centx
+            dy = verts[i][1] - centy
+            vx = -dy / side * spin + drift
+            vy = dx / side * spin
+            ps.prev_positions[i, 0] = ps.positions[i, 0] - vx * dt
+            ps.prev_positions[i, 1] = ps.positions[i, 1] - vy * dt

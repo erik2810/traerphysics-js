@@ -3,34 +3,41 @@ import torch
 from .particle import ParticleSystem
 
 
+def verlet_integrate(ps: ParticleSystem, dt: float) -> None:
+    """Verlet integration matching traerphysics.js Particle.integrate():
+        vel = pos - prev
+        next = pos + vel + acc * dt²
+        prev = pos
+    """
+    mask = ~ps.pinned.unsqueeze(-1)  # (N, 1)
+    dt_sq = dt * dt
+
+    current = ps.positions.clone()
+    velocity = current - ps.prev_positions
+    ps.positions = torch.where(
+        mask,
+        current + velocity + ps.accelerations * dt_sq,
+        current,
+    )
+    ps.prev_positions = current
+    ps.accelerations.zero_()
+
+
 def euler_integrate(ps: ParticleSystem, dt: float) -> None:
-    """Explicit Euler integration matching gorillasun / Paul Bourke.
-
-    v(t+dt) = v(t) + a(t) * dt
-    x(t+dt) = x(t) + v(t+dt) * dt
-
-    References:
-      - https://paulbourke.net/miscellaneous/particle/
-      - https://www.gorillasun.de/blog/spring-physics-and-connecting-particles-with-springs/
+    """Explicit Euler integration for modes needing explicit velocity (mesh3d collisions).
+        v += a * dt
+        x += v * dt
     """
     mask = ~ps.pinned.unsqueeze(-1)  # (N, 1)
 
-    # Update velocity: v += a * dt
     ps.velocities += ps.accelerations * dt
-
-    # Zero velocity for pinned particles
     ps.velocities = torch.where(mask, ps.velocities, torch.zeros_like(ps.velocities))
-
-    # Update position: x += v * dt
     ps.positions += ps.velocities * dt * mask.float()
-
-    # Clear acceleration accumulator
     ps.accelerations.zero_()
 
 
 def clamp_velocities(ps: ParticleSystem, max_speed: float) -> None:
-    """Clamp particle velocities to a maximum speed.
-    Reference: gorillasun article velocity limiting."""
+    """Clamp particle velocities to a maximum speed."""
     if max_speed <= 0:
         return
     speed = ps.velocities.norm(dim=-1, keepdim=True)  # (N, 1)
