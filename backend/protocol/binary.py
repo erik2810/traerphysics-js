@@ -16,6 +16,10 @@ def pack_state_frame(engine: PhysicsEngine) -> bytes:
         float32 sim_time
         float32[] positions (N * dim values, flat)
     """
+    # TODO: state frames carry positions only. The frontend can't do velocity-
+    # based prediction in euler modes, and the fixed header (uint8,uint8,uint16,
+    # float32) leaves no room to add fields without breaking decodeStateFrame()
+    # in frontend/src/network/protocol.ts, which reads positions at byte offset 8.
     ps = engine.particles
     n = ps.count
     dim = ps.dim

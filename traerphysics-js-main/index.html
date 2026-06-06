@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TraerPhysics Playground</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: visible;
+        }
+        #container {
+            position: absolute;
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 280px;
+            transition: all 0.3s ease;
+        }
+        .collapsed {
+            transform: translateX(calc(100% - 60px));
+        }
+        .control-content {
+            display: none;
+        }
+        #controls:hover {
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            transform: translateY(-2px);
+        }
+        #controls h3 {
+            margin-top: 0;
+            color: #667eea;
+            text-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+        }
+        #toggle-controls {
+            position: absolute;
+            left: -40px;
+            top: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 5px 0 0 5px;
+            padding: 10px 8px;
+            color: black;
+            font-weight: bold;
+            cursor: pointer;
+            writing-mode: vertical-lr;
+            font-size: 12px;
+        }
+        .control-group {
+            margin: 15px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            display: block;
+            margin-bottom: 3px;
+            color: #b8b8b8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        input[type="range"] {
+            width: 50%;
+            margin: 5px 0;
+        }
+        input[type="number"] {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+            width: 60px;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+            font-size: 11px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        #info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .value-display {
+            display: inline-block;
+            min-width: 30px;
+            color: #667eea;
+            font-weight: bold;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            color: #667eea;
+            font-size: 18px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div id="container">
+    <div id="controls">
+        <h3 style="margin-top: 0; color: #667eea;">Traer Physics</h3>
+
+        <select id="mode-select">
+            <label for="mode-select">Mode:</label>
+            <option value="triangle">Triangle</option>
+            <option value="rope">Rope</option>
+        </select>
+
+        <div class="control-group">
+            <label for="drag">Drag: <span class="value-display" id="drag-value">0.40</span></label>
+            <input type="range" id="drag" min="0.1" max="2.0" step="0.1" value="0.4">
+        </div>
+
+        <div class="control-group">
+            <label for="attract">Attraction: <span class="value-display" id="attract-value">-0.0015</span></label>
+            <input type="range" id="attract" min="-0.01" max="0.0" step="0.0005" value="-0.0015">
+        </div>
+    </div>
+
+    <div id="info">
+        <div>Shortcuts: C-controls, R-reset</div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+<script type="module" src="playground.js"></script>
+</body>
+</html>

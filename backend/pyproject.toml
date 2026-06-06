@@ -11,5 +11,13 @@ dependencies = [
     "pydantic>=2.5",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.scripts]
+# NOTE: this points at main:run, but main.py defines no run() and the module is
+# importable as backend.main, not main. The packaged console script does not work;
+# use run.sh / `uvicorn backend.main:app` instead.
 traerphysics = "main:run"

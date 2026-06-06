@@ -1,6 +1,7 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
-from fastapi import APIRouter, HTTPException
+from typing import TYPE_CHECKING, Optional
+from fastapi import APIRouter, HTTPException, Header
+from backend.config import API_KEY
 from .schemas import ModeInfo, SwitchModeRequest, UpdateParamsRequest, SimulationState
 
 if TYPE_CHECKING:
@@ -21,6 +22,17 @@ def _get_sim() -> SimulationServer:
     if _sim is None:
         raise HTTPException(status_code=503, detail="Simulation not initialized")
     return _sim
+
+
+def _require_api_key(x_api_key: Optional[str]) -> None:
+    """Enforce the API key when one is configured.
+
+    WARNING: this is only wired into POST /api/reset. The other mutating
+    endpoints (/mode, /params, /pause, /resume) do NOT call it, so "the API is
+    authenticated" is only half true.
+    """
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 @router.get("/modes")
@@ -64,8 +76,11 @@ async def switch_mode(req: SwitchModeRequest) -> SimulationState:
 async def update_params(req: UpdateParamsRequest) -> dict:
     sim = _get_sim()
     engine = sim.engine
-    import torch
+    import torch  # imported lazily here; every other module imports torch at top
 
+    # TODO: no value-level validation. constraint_iterations can be negative
+    # (loop just no-ops), and a gravity list whose length != engine.dim is
+    # accepted and will broadcast-fail or silently mismatch dimensions.
     if req.gravity is not None:
         engine.gravity = torch.tensor(req.gravity, dtype=torch.float32)
     if req.drag is not None:
@@ -119,7 +134,9 @@ async def update_params(req: UpdateParamsRequest) -> dict:
 
 
 @router.post("/reset")
-async def reset_mode() -> SimulationState:
+async def reset_mode(x_api_key: Optional[str] = Header(default=None)) -> SimulationState:
+    # The only endpoint that checks the API key. See _require_api_key().
+    _require_api_key(x_api_key)
     sim = _get_sim()
     await sim.switch_mode(sim.current_mode_name, sim.current_params)
     return await get_current_mode()

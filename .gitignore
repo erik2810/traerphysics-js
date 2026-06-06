@@ -24,5 +24,10 @@ Thumbs.db
 .env
 .env.local
 
-# Claude Code
+# Local tooling
 .claude/
+
+# Local planning notes (not published)
+project-instruction.md
+project-construction.rtf
+benchmark-design.md

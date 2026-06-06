@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import logging
 import time
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,10 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import TICK_RATE, DEFAULT_MODE
+
+# NOTE: no logging.basicConfig() / dictConfig() anywhere in the app, so unless
+# uvicorn happens to configure the root logger these records may go nowhere.
+logger = logging.getLogger("traerphysics")
 from backend.physics.engine import PhysicsEngine
 from backend.protocol.binary import pack_state_frame, pack_topology_frame
 from backend.modes.triangle import TriangleMode
@@ -36,11 +41,16 @@ class SimulationServer:
         self.tick_rate: int = TICK_RATE
 
     async def switch_mode(self, mode_name: str, params: dict | None = None) -> None:
+        # NOTE: no validation that mode_name is known here — KeyError if not.
+        # The /api/mode route guards against that, but switch_mode() is also
+        # called from /api/reset and lifespan startup with trusted input.
         mode = self.available_modes[mode_name]
         p = params or {}
         mode.setup(self.engine, p)
         self.current_mode_name = mode_name
         self.current_params = {**mode.default_params(), **p}
+        logger.info("switched to mode %s (%d particles)", mode_name,
+                    self.engine.particles.count if self.engine.particles else 0)
 
         # Broadcast topology to all connected clients
         topology_frame = pack_topology_frame(self.engine)
@@ -48,6 +58,7 @@ class SimulationServer:
             try:
                 await ws.send_bytes(topology_frame)
             except Exception:
+                # Swallows everything (disconnects, encoding errors, ...) the same way.
                 self.clients.discard(ws)
 
     async def simulation_loop(self) -> None:
@@ -60,7 +71,10 @@ class SimulationServer:
                 self.engine.step()
                 frame = pack_state_frame(self.engine)
 
-                # Broadcast to all connected clients
+                # Broadcast to all connected clients.
+                # TODO: there is no per-client backpressure — a single slow
+                # consumer will stall this await and drop the effective tick
+                # rate for everyone. Consider per-client queues with drop policy.
                 for ws in list(self.clients):
                     try:
                         await ws.send_bytes(frame)
@@ -78,11 +92,13 @@ sim = SimulationServer()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    logger.info("starting simulation server (tick_rate=%d)", TICK_RATE)
     set_simulation_server(sim)
     await sim.switch_mode(DEFAULT_MODE)
     task = asyncio.create_task(sim.simulation_loop())
     yield
     # Shutdown
+    logger.info("shutting down simulation server")
     sim.running = False
     task.cancel()
     try:
